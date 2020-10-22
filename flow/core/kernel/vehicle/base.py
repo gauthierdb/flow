@@ -672,7 +672,41 @@ class KernelVehicle(object, metaclass=ABCMeta):
         lis of str
         """
         pass
+    
+    
+    #ADDED BY GAUTHIER
+    def get_acc_waiting_time(self, veh_id, error):
+        """Returns the accumulated waiting time of the vehicle
 
+        Parameters
+        ----------
+        veh_id : str or list of str
+        error : any, optional
+
+        Returns
+        -------
+        float
+        """
+        raise NotImplementedError
+
+
+    # ADDED BY GAUTHIER
+    def get_rel_acc_waiting_time(self, veh_id, error):
+        """Returns the accumulated waiting time of the vehicle, reset after each intersection.
+
+         Parameters
+         ----------
+         veh_id : str or list of str
+         error : any, optional
+
+         Returns
+         -------
+         float
+         """
+        raise NotImplementedError
+    
+    
+    
     @abstractmethod
     def get_lane_tailways(self, veh_id, error=list()):
         """Return the lane tailways of the specified vehicle.

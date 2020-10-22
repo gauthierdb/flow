@@ -24,7 +24,9 @@ rdelta = 255 / STEPS
 # smoothly go from red to green as the speed increases
 color_bins = [[int(255 - rdelta * i), int(rdelta * i), 0] for i in
               range(STEPS + 1)]
-
+THRESHOLD = 2.0
+ACC_FACTOR = 1
+DECC_FACTOR = 0.25
 
 class TraCIVehicle(KernelVehicle):
     """Flow kernel for the TraCI API.
@@ -88,6 +90,12 @@ class TraCIVehicle(KernelVehicle):
         # old speeds used to compute accelerations
         self.previous_speeds = {}
 
+        # ADDED BY GAUTHIER
+        self.previous_acc_delay_factor = {}
+        self.almost_standstill_acc = {}
+        self.previous_almost_standstill_acc = {}
+
+
     def initialize(self, vehicles):
         """Initialize vehicle state information.
 
@@ -139,6 +147,32 @@ class TraCIVehicle(KernelVehicle):
         vehicle_obs = {}
         for veh_id in self.__ids:
             self.previous_speeds[veh_id] = self.get_speed(veh_id)
+
+            # --------------- ADDED BY GAUTHIER -------------
+            # Make sure that both lists are complete for all vehicles
+            if veh_id not in self.almost_standstill_acc:
+                self.almost_standstill_acc[veh_id] = 0
+            if veh_id not in self.previous_almost_standstill_acc:
+                self.previous_almost_standstill_acc[veh_id] = 0
+
+            # If you pass below the threshold, start incrementing your standstill time
+            if (self.get_speed(veh_id) < THRESHOLD):
+                self.almost_standstill_acc[veh_id] += ACC_FACTOR
+
+            # If you pass above the threshold, start decreasing your standstill time
+            # Also, decrease your previous standstill time so that [Standstill time - previous standstill time] is still valid
+            else:
+                if (self.almost_standstill_acc[veh_id] - DECC_FACTOR >= 0):
+                    self.almost_standstill_acc[veh_id] -= DECC_FACTOR
+                else:
+                    self.almost_standstill_acc[veh_id] = 0
+
+                if (self.previous_almost_standstill_acc[veh_id] - DECC_FACTOR >= 0):
+                    self.previous_almost_standstill_acc[veh_id] -= DECC_FACTOR
+                else:
+                    self.previous_almost_standstill_acc[veh_id] = 0
+            # ---------------------------------------------------
+
             vehicle_obs[veh_id] = \
                 self.kernel_api.vehicle.getSubscriptionResults(veh_id)
         sim_obs = self.kernel_api.simulation.getSubscriptionResults()
@@ -188,6 +222,10 @@ class TraCIVehicle(KernelVehicle):
             self._arrived_ids = 0
             self._arrived_rl_ids.clear()
             self.num_not_departed = 0
+            # Added by gauthier
+            self.previous_acc_delay_factor = {}
+            self.almost_standstill_acc = {}
+            self.previous_almost_standstill_acc = {}
 
             # add vehicles from a network template, if applicable
             if hasattr(self.master_kernel.network.network,
@@ -253,6 +291,18 @@ class TraCIVehicle(KernelVehicle):
                             headway[1] + min_gap < leader["follower_headway"]):
                         leader["follower"] = veh_id
                         leader["follower_headway"] = headway[1] + min_gap
+
+        #ADDED BY GAUTHIER
+        # When changing the lane, keep a value of the previous lane standstill time
+        for veh_id in self.__ids:
+            prev_edge = self.get_edge(veh_id)
+            if vehicle_obs[veh_id][tc.VAR_ROAD_ID] != prev_edge:
+                self.previous_almost_standstill_acc[veh_id] = self.almost_standstill_acc[veh_id]
+                #print("Lane change, saved delay factor is: " + str(round(self.previous_almost_standstill_acc[veh_id],2)))
+                #self.previous_acc_delay_factor[veh_id] = self.get_acc_waiting_time(veh_id, -1001)
+                #print("Lane change, saved delay factor is: " + str(self.previous_acc_delay_factor[veh_id]))
+
+
 
         # update the sumo observations variable
         self.__sumo_obs = vehicle_obs.copy()
@@ -565,6 +615,42 @@ class TraCIVehicle(KernelVehicle):
             return [self.get_default_speed(vehID, error) for vehID in veh_id]
         return self.__sumo_obs.get(veh_id, {}).get(tc.VAR_SPEED_WITHOUT_TRACI,
                                                    error)
+
+
+    # ADDED BY GAUTHIER
+    def get_acc_waiting_time(self, veh_id, error=-1001):
+        """ Get the total waiting time of a vehicle. This value increments if velocity is below threshold & decrements if above threshold"""
+        if isinstance(veh_id, (list, np.ndarray)):
+            return [self.get_acc_waiting_time(vehID, error) for vehID in veh_id]
+
+        if veh_id in self.almost_standstill_acc:
+            return round(self.almost_standstill_acc[veh_id], 2)
+        else:
+            return 0
+        # return self.__sumo_obs.get(veh_id, {}).get(tc.VAR_ACCUMULATED_WAITING_TIME, error)
+
+
+
+    # ADDED BY GAUTHIER
+    def get_rel_acc_waiting_time(self, veh_id, error=-1001):
+        if isinstance(veh_id, (list, np.ndarray)):
+            return [self.get_rel_acc_waiting_time(vehID, error) for vehID in veh_id]
+
+        if veh_id not in self.almost_standstill_acc:
+            return 0.0
+
+        # The vehicle has a saved standstill from a previous lane change
+        if veh_id in self.previous_almost_standstill_acc:
+            if (round(self.almost_standstill_acc[veh_id], 2) >= round(self.previous_almost_standstill_acc[veh_id],
+                                                                      2)):
+                return round((self.almost_standstill_acc[veh_id] - self.previous_almost_standstill_acc[veh_id]), 2)
+            else:
+                return 0.0
+        else:
+            return round(self.almost_standstill_acc[veh_id], 2)
+
+
+
 
     def get_position(self, veh_id, error=-1001):
         """See parent class."""

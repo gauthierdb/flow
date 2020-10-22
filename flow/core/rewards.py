@@ -205,6 +205,21 @@ def min_delay_unscaled(env):
     return cost / (env.k.vehicle.num_vehicles + eps)
 
 
+# ADDED BY GAUTHIER
+def minimal_waiting_times(env, debug):
+    """Will try to minimize the overall waiting times of vehicles"""
+    veh_ids = env.k.vehicle.get_ids()
+    if len(veh_ids) != 0:
+        acc_waiting_time = np.array(env.k.vehicle.get_acc_waiting_time(veh_ids))
+        if (debug == True):
+            print(
+                "------------------------------ Rewards in ENV ---------------------\nCalculating reward: Total acc_waiting_time: " + str(
+                    sum(acc_waiting_time)) + ", Averaged for " + str(len(veh_ids)) + " Vehicles")
+        return (sum(acc_waiting_time) / len(veh_ids))
+    else:
+        return 0
+
+
 def penalize_standstill(env, gain=1):
     """Reward function that penalizes vehicle standstill.
 
